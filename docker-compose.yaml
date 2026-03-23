@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # PostgreSQL с настроенным пользователем
+  db:
+    image: postgres:15
+    container_name: organization_db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-org_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-org_password}
+      POSTGRES_DB: ${POSTGRES_DB:-organization_db}
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-org_user} -d ${POSTGRES_DB:-organization_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # FastAPI приложение
+  app:
+    build: .
+    container_name: organization_app
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-org_user}:${POSTGRES_PASSWORD:-org_password}@db:5432/${POSTGRES_DB:-organization_db}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-True}
+    volumes:
+      - ./app:/app/app
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+      - ./logs:/app/logs
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    networks:
+      - app_network
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  app_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
